@@ -420,12 +420,14 @@ def check_switches(b):
             switched = True
             
     if switched:
+        sound_switch.play()
         update_dynamic_tiles()
         status_text.text = "DA KICH HOAT CONG TAC!"
 
 def on_lose():
     global is_animating
     is_animating = True
+    sound_fall.play()
     status_text.text = "Roi khoi san! Dang hoi sinh..."
     player.animate_y(-10, duration=0.6, curve=curve.in_back)
     invoke(reset_game, delay=0.8)
@@ -452,11 +454,26 @@ def finish_move(was_legal):
         # KIỂM TRA THẮNG
         if not is_split and current_block.equals(terrain.end()) and current_block.is_up():
             is_animating = True
-            win_text.enabled = True
+            sound_win.play()
             player.animate_y(-1, duration=0.5, curve=curve.in_quad)
+            
+            # Tắt nút Chơi Lại vì đã thắng rồi
+            invoke(lambda: setattr(btn_restart, 'enabled', False), delay=0.5)
+            
+            # Kiểm tra xem có phải là Màn Cuối Cùng không (Màn 10 là index 9)
+            if current_level_index == len(LEVELS) - 1:
+                win_text.text = "CHÚC MỪNG!\nBẠN ĐÃ PHÁ ĐẢO GAME!"
+                win_text.enabled = True
+                # Không bật nút btn_next, trên màn hình giờ chỉ còn mỗi nút "Menu Chính"
+            else:
+                win_text.text = "CHIẾN THẮNG!"
+                win_text.enabled = True
+                # Bật nút Màn Tiếp Theo nếu chưa phải màn cuối
+                if game_mode == 'MANUAL':
+                    invoke(lambda: setattr(btn_next, 'enabled', True), delay=0.6)
             return
     else:
-        if not is_split and current_block.is_up():
+        if not is_split and current_block.is_up():  
             sq_a = terrain.arr[current_block.ax + terrain.width * current_block.ay]
             sq_b = terrain.arr[current_block.bx + terrain.width * current_block.by]
             if sq_a == "~" or sq_b == "~":
@@ -487,6 +504,7 @@ def try_move(dx, dy):
         move_text.text = f"Bước: {move_count}"
 
     is_animating = True
+    sound_move.play()
     update_player_graphics(animate=True, dx=dx, dy=dy)
     invoke(finish_move, was_legal, delay=MOVE_DURATION)
 
@@ -522,6 +540,12 @@ def reset_game():
 
 def input(key):
     global active_split, current_block
+    if game_mode == 'MENU': return # Chặn thao tác khi đang ở Menu
+    if game_mode == 'AI': return   # Chặn thao tác di chuyển tay khi AI đang giải
+
+    if key == "r": load_level(current_level_index); return
+    if key == "n" and game_mode == 'MANUAL': load_level(current_level_index + 1); return
+    if key == "z" and game_mode == 'MANUAL': undo_move(); return
     if key == "r": reset_game(); return
     if key == "n": load_level(current_level_index + 1); return
     if key == "b": load_level(current_level_index - 1); return
@@ -552,17 +576,109 @@ def input(key):
     if dx or dy: try_move(dx, dy)
 
 # ==========================================
-# 5. UI VÀ KHỞI TẠO
+# 5. UI, MENU CHÍNH VÀ KHỞI TẠO GAME
 # ==========================================
-level_text = Text(text="", scale=1.4, origin=(0, 0), y=0.48, color=color.white)
-status_text = Text(text="", scale=1, origin=(0, 0), y=0.42, color=color.light_gray)
-move_text = Text(text="Bước: 0", scale=1.2, origin=(-0.5, 0), x=-0.85, y=0.35, color=color.azure)
-win_text = Text(text="CHIEN THANG!", scale=2.5, origin=(0, 0), y=0.05, color=color.yellow, enabled=False)
+game_mode = 'MENU' # Các trạng thái: 'MENU', 'MANUAL', 'AI'
+selected_ai = None
 
-# Khối chính (Đỏ) - Luôn là khối được điều khiển
+# ---- TEXT HIỂN THỊ TRONG GAME ----
+level_text = Text(text="", scale=1.4, origin=(0, 0), y=0.48, color=color.white, enabled=False)
+status_text = Text(text="", scale=1, origin=(0, 0), y=0.42, color=color.light_gray, enabled=False)
+move_text = Text(text="Bước: 0", scale=1.2, origin=(-0.5, 0), x=-0.85, y=0.35, color=color.azure, enabled=False)
+win_text = Text(text="CHIẾN THẮNG!", scale=2.5, origin=(0, 0), y=0.05, color=color.yellow, enabled=False)
+
+# ---- NÚT BẤM TRONG GAME ----
+btn_menu = Button("Menu Chính", position=(-0.75, 0.45), scale=(0.15, 0.05), color=color.red, enabled=False)
+btn_restart = Button("Chơi Lại", position=(-0.75, 0.38), scale=(0.15, 0.05), color=color.orange, enabled=False)
+btn_next = Button("Màn Tiếp Theo", position=(0, -0.15), scale=(0.25, 0.08), color=color.azure, enabled=False)
+
+# ---- CÁC MÀN HÌNH MENU ----
+menu_bg = Entity(parent=camera.ui, model='quad', scale=(2, 1.2), texture='background.png', color=color.gray)
+
+# 1. Menu Chính
+main_menu = Entity(parent=camera.ui)
+Text(text="BLOXORZ 3D", parent=main_menu, scale=4, origin=(0,0), y=0.25, color=color.orange)
+Button(text="Người chơi tự chơi", parent=main_menu, scale=(0.4, 0.08), y=0.05, color=color.clear, text_color=color.white, on_click=lambda: start_manual_game())
+Button(text="Máy giải (AI)", parent=main_menu, scale=(0.4, 0.08), y=-0.05, color=color.clear, text_color=color.white, on_click=lambda: show_menu(ai_menu))
+
+# 2. Menu Chọn Giải Thuật AI
+ai_menu = Entity(parent=camera.ui, enabled=False)
+Text(text="CHỌN THUẬT TOÁN", parent=ai_menu, scale=2.5, origin=(0,0), y=0.25, color=color.yellow)
+Button(text="Solve BFS", parent=ai_menu, scale=(0.25, 0.08), position=(-0.15, 0.1), color=color.clear, text_color=color.white, on_click=lambda: select_algo("BFS"))
+Button(text="Solve DFS", parent=ai_menu, scale=(0.25, 0.08), position=(0.15, 0.1), color=color.clear, text_color=color.white, on_click=lambda: select_algo("DFS"))
+Button(text="Solve UCS", parent=ai_menu, scale=(0.25, 0.08), position=(-0.15, 0), color=color.clear, text_color=color.white, on_click=lambda: select_algo("UCS"))
+Button(text="Solve A*", parent=ai_menu, scale=(0.25, 0.08), position=(0.15, 0), color=color.clear, text_color=color.white, on_click=lambda: select_algo("A*"))
+Button(text="Quay Lại", parent=ai_menu, scale=(0.2, 0.06), y=-0.2, color=color.clear, text_color=color.red, on_click=lambda: show_menu(main_menu))
+
+# 3. Menu Chọn Màn Chơi (Dành cho AI)
+level_menu = Entity(parent=camera.ui, enabled=False)
+Text(text="CHỌN MÀN CẦN GIẢI", parent=level_menu, scale=2.5, origin=(0,0), y=0.35, color=color.yellow)
+for i in range(10): # Các màn từ 1 đến 10
+    x_pos = -0.3 + (i % 4) * 0.2
+    y_pos = 0.15 - (i // 4) * 0.15
+    Button(text=f"Map {i+1}", parent=level_menu, scale=(0.15, 0.08), position=(x_pos, y_pos), color=color.clear, text_color=color.white, on_click=Func(lambda idx=i: start_ai_game(idx)))
+Button(text="Quay Lại", parent=level_menu, scale=(0.2, 0.06), y=-0.3, color=color.clear, text_color=color.red, on_click=lambda: show_menu(ai_menu))
+
+# ---- CÁC HÀM XỬ LÝ SỰ KIỆN MENU ----
+def show_menu(menu_entity):
+    main_menu.enabled = ai_menu.enabled = level_menu.enabled = False
+    menu_entity.enabled = True
+
+def select_algo(algo_name):
+    global selected_ai
+    selected_ai = algo_name
+    show_menu(level_menu)
+
+def start_manual_game():
+    global game_mode
+    game_mode = 'MANUAL'
+    menu_bg.enabled = main_menu.enabled = False
+    btn_menu.enabled = btn_restart.enabled = True
+    level_text.enabled = status_text.enabled = move_text.enabled = True
+    load_level(0) # Người chơi tự chơi luôn bắt đầu từ Màn 1
+
+def start_ai_game(level_idx):
+    global game_mode
+    game_mode = 'AI'
+    menu_bg.enabled = ai_menu.enabled = level_menu.enabled = False
+    btn_menu.enabled = btn_restart.enabled = True
+    level_text.enabled = status_text.enabled = move_text.enabled = True
+    load_level(level_idx)
+    status_text.text = f"Đang chờ AI tính toán bằng {selected_ai}..."
+    # Gọi logic AI (Sẽ nhúng code thuật toán vào đây sau)
+    invoke(run_ai_solver, delay=0.5)
+
+def back_to_menu():
+    global game_mode
+    game_mode = 'MENU'
+    menu_bg.enabled = True
+    show_menu(main_menu)
+    btn_menu.enabled = btn_restart.enabled = btn_next.enabled = win_text.enabled = False
+    level_text.enabled = status_text.enabled = move_text.enabled = False
+    if current_pivot: destroy(current_pivot)
+
+def next_level():
+    btn_next.enabled = False
+    load_level(current_level_index + 1)
+
+# Gắn sự kiện cho các nút In-game
+btn_menu.on_click = back_to_menu
+btn_restart.on_click = lambda: load_level(current_level_index)
+btn_next.on_click = next_level
+
+def run_ai_solver():
+    status_text.text = f"AI {selected_ai} đang giải quyết..."
+    # CODE TỰ ĐỘNG CHƠI SẼ ĐƯỢC CẬP NHẬT Ở BƯỚC TỚI
+
+# ---- KHỞI TẠO VÀ CHẠY GAME ----
 player = Entity(model="cube", color=color.hex('#8c4646'), texture="white_cube")
-# Khối phụ (Xám) - Đại diện cho nửa khối đang đứng im chờ
 player2 = Entity(model="cube", color=color.gray, texture="white_cube", visible=False)
-load_level(0)
 
+# KHAI BÁO ÂM THANH (Thêm đoạn này)
+sound_move = Audio('move.wav', autoplay=False)
+sound_fall = Audio('fall.wav', autoplay=False)
+sound_win = Audio('win.wav', autoplay=False)
+sound_switch = Audio('switch.wav', autoplay=False)
+
+back_to_menu()
 app.run()
