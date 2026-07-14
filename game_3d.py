@@ -120,6 +120,19 @@ LEVELS = [
             "*S**.......****"
             "****.11111.***a"
         ),
+    },
+    {
+        "name": "Level 11 - Tách Khối (Trùm)",
+        "width": 10,
+        "data": (
+            "S***......"
+            "***X*....." # Nút X: Tách khối
+            ".........."
+            "[********]" # Dấu [ và ] là điểm 2 nửa khối bay tới
+            ".********."
+            ".***E****."
+            ".********."
+        ),
     }
 ]
 
@@ -127,16 +140,20 @@ class AdvancedTerrain(ArrayTerrain):
     def __init__(self, start, end, arr, width):
         super().__init__(start, end, arr, width)
         self.broken_tiles = set()
-        self.bridges = {'1': False, '2': False, '3': False} # Mặc định cầu đóng
+        self.bridges = {'1': False, '2': False, '3': False}
 
     def tile_at(self, x, y):
         if (x, y) in self.broken_tiles: return "."
         char = self.arr[x + self.width * y]
         if char in ['1', '2', '3']:
             return '*' if self.bridges[char] else '.'
+        # Cho phép dẫm lên các ô công tắc và bệ đáp
+        if char in ['[', ']', 'X', 'q', 'w', 'e', 'a', 's', 'd']:
+            return '*' 
         return char
 
-    def is_legal(self, b):
+    # ĐÃ THÊM: Biến is_half để biết nửa khối đi qua gạch cam sẽ KHÔNG bị vỡ!
+    def is_legal(self, b, is_half=False):
         if (b.ax < 0 or b.ay < 0 or b.bx < 0 or b.by < 0 or
             b.ax >= self.width or b.bx >= self.width or
             b.ay * self.width >= len(self.arr) or b.by * self.width >= len(self.arr)):
@@ -146,7 +163,10 @@ class AdvancedTerrain(ArrayTerrain):
         square_b = self.tile_at(b.bx, b.by)
 
         if square_a == "." or square_b == ".": return False
-        if b.is_up() and (square_a == "~" or square_b == "~"): return False
+        
+        # Chỉ vỡ gạch cam nếu là khối nguyên 1x1x2 ĐỨNG
+        if b.is_up() and not is_half and (square_a == "~" or square_b == "~"): 
+            return False
         return True
 
     def break_fragile_under(self, b):
@@ -179,7 +199,14 @@ is_animating = False
 move_count = 0
 MOVE_DURATION = 0.22
 
+move_history = []
+is_split = False
+split_blocks = [None, None]
+active_split = 0
+
 def get_player_transform(b):
+    if is_split:
+        return (b.ax, 0.5, -b.ay), (1, 1, 1) # Nửa khối thì scale 1x1x1
     if b.is_up(): return (b.ax, 1, -b.ay), (1, 2, 1)
     scale = (1, 1, 2) if b.ax == b.bx else (2, 1, 1)
     return ((b.ax + b.bx) / 2, 0.5, -(b.ay + b.by) / 2), scale
@@ -223,16 +250,23 @@ def build_map_graphics(level, terrain_obj):
                 tile = Entity(model="cube", color=color.black, scale=(1, 0.1, 1), position=(x, -0.2, -y))
             else:
                 tile = Entity(model="cube", color=tile_color(char), texture="white_cube", scale=(1, 0.2, 1), position=pos)
-
                 if char in ['q', 'w', 'e']:
                     Entity(parent=tile, model="sphere", color=color.lime, scale=(0.5, 2.5, 0.5), y=0.5)
                 elif char in ['a', 's', 'd']:
                     button = Entity(parent=tile, model="cube", color=color.clear, scale=(0.8, 0.1, 0.8), y=0.51)
                     Entity(parent=button, model="cube", color=color.red, scale=(1, 0.2, 0.2), rotation_y=45)
                     Entity(parent=button, model="cube", color=color.red, scale=(1, 0.2, 0.2), rotation_y=-45)
+                elif char == 'X':
+                    # Nút Tách Khối (Màu Tím có 2 chấm trắng)
+                    btn = Entity(parent=tile, model="cube", color=color.magenta, scale=(0.8, 0.1, 0.8), y=0.51)
+                    Entity(parent=btn, model="cube", color=color.white, scale=(0.2, 0.2, 0.2), x=-0.2, y=1)
+                    Entity(parent=btn, model="cube", color=color.white, scale=(0.2, 0.2, 0.2), x=0.2, y=1)
+                elif char in ['[', ']']:
+                    # Điểm đáp của khối vỡ (Bệ màu tím)
+                    Entity(parent=tile, model="quad", color=color.magenta, rotation_x=90, scale=(0.6, 0.6, 0.6), y=0.51)
                 elif char in ['1', '2', '3']:
                     tile.enabled = False
-                    tile.y = -5 # Đặt cầu giấu sẵn ở dưới vực sâu
+                    tile.y = -5
 
             map_entities[(x, y)] = tile
 
@@ -300,7 +334,38 @@ def update_player_graphics(animate=False, dx=0, dy=0):
 # ==========================================
 # 4. LOGIC GAMEPLAY
 # ==========================================
+def clone_block(b):
+    return Block(b.ax, b.ay, b.bx, b.by)
+
+def save_state():
+    saved_splits = [clone_block(b) for b in split_blocks] if is_split else None
+    state = (clone_block(current_block), set(terrain.broken_tiles), move_count, is_split, saved_splits, active_split)
+    move_history.append(state)
+
+def undo_move():
+    global current_block, move_count, is_animating, is_split, split_blocks, active_split
+    if is_animating or not move_history: return
+
+    block, broken, count, s_split, s_blocks, s_active = move_history.pop()
+    current_block, terrain.broken_tiles, move_count = block, broken, count
+    
+    is_split, split_blocks, active_split = s_split, s_blocks, s_active
+    if is_split:
+        player2.visible = True
+        player2.position = (split_blocks[1 - active_split].ax, 0.5, -split_blocks[1 - active_split].ay)
+        player2.scale = (1, 1, 1)
+    else:
+        player2.visible = False
+        
+    build_map_graphics(LEVELS[current_level_index], terrain)
+    update_dynamic_tiles()
+    update_player_graphics(animate=False)
+    win_text.enabled = False
+    status_text.text = "Đã hoàn tác bước trước"
+
 def check_switches(b):
+    global is_split, split_blocks, active_split, current_block
+    
     map_width = LEVELS[current_level_index]["width"]
     map_data = LEVELS[current_level_index]["data"]
     coords = [(b.ax, b.ay)]
@@ -309,12 +374,30 @@ def check_switches(b):
     switched = False
     for x, y in coords:
         char = map_data[x + y * map_width]
+        
+        # LOGIC TÁCH KHỐI (Split Switch)
+        if char == 'X' and b.is_up() and not is_split:
+            idx1, idx2 = map_data.find('['), map_data.find(']')
+            if idx1 != -1 and idx2 != -1:
+                x1, y1 = idx1 % map_width, idx1 // map_width
+                x2, y2 = idx2 % map_width, idx2 // map_width
+                
+                is_split = True
+                active_split = 0
+                split_blocks = [Block.new_block_up(x1, y1), Block.new_block_up(x2, y2)]
+                current_block = clone_block(split_blocks[0])
+                
+                player.position, player.scale = (x1, 0.5, -y1), (1, 1, 1)
+                player2.position, player2.scale = (x2, 0.5, -y2), (1, 1, 1)
+                player2.visible = True
+                
+                status_text.text = "DA TACH KHOI! Bam SPACE de chuyen doi"
+                return # Ngắt lệnh để không check các công tắc khác lúc bay
+
+        # LOGIC CẦU
         is_soft = char in ['q', 'w', 'e']
         is_heavy = char in ['a', 's', 'd']
-        
-        if is_heavy and not b.is_up():
-            continue 
-        
+        if is_heavy and (not b.is_up() or is_split): continue 
         if is_soft or is_heavy:
             target = '1' if char in ['q', 'a'] else '2' if char in ['w', 's'] else '3'
             terrain.bridges[target] = not terrain.bridges[target]
@@ -332,21 +415,37 @@ def on_lose():
     invoke(reset_game, delay=0.8)
 
 def finish_move(was_legal):
-    global is_animating
-    check_switches(current_block)
+    global is_animating, is_split, current_block, active_split
     
     if was_legal:
-        if current_block.equals(terrain.end()) and current_block.is_up():
+        check_switches(current_block)
+        
+        # KIỂM TRA GHÉP KHỐI KHI NẰM CẠNH NHAU
+        if is_split:
+            split_blocks[active_split] = clone_block(current_block)
+            b1, b2 = split_blocks[0], split_blocks[1]
+            dx_merge, dy_merge = abs(b1.ax - b2.ax), abs(b1.ay - b2.ay)
+            
+            if (dx_merge == 1 and dy_merge == 0) or (dx_merge == 0 and dy_merge == 1):
+                is_split = False
+                player2.visible = False
+                current_block = Block(min(b1.ax, b2.ax), min(b1.ay, b2.ay), max(b1.ax, b2.ax), max(b1.ay, b2.ay))
+                update_player_graphics(animate=False)
+                status_text.text = "DA GHEP KHOI THANH CONG!"
+                
+        # KIỂM TRA THẮNG
+        if not is_split and current_block.equals(terrain.end()) and current_block.is_up():
             is_animating = True
             win_text.enabled = True
             player.animate_y(-1, duration=0.5, curve=curve.in_quad)
             return
     else:
-        square_a = terrain.arr[current_block.ax + terrain.width * current_block.ay]
-        square_b = terrain.arr[current_block.bx + terrain.width * current_block.by]
-        if current_block.is_up() and (square_a == "~" or square_b == "~"):
-            terrain.break_fragile_under(current_block)
-            update_broken_tile_graphics()
+        if not is_split and current_block.is_up():
+            sq_a = terrain.arr[current_block.ax + terrain.width * current_block.ay]
+            sq_b = terrain.arr[current_block.bx + terrain.width * current_block.by]
+            if sq_a == "~" or sq_b == "~":
+                terrain.break_fragile_under(current_block)
+                update_broken_tile_graphics()
         on_lose()
         return
         
@@ -356,8 +455,15 @@ def try_move(dx, dy):
     global current_block, move_count, is_animating
     if is_animating: return
 
-    new_block = current_block.move(dx, dy)
-    was_legal = terrain.is_legal(new_block)
+    save_state()
+    
+    if is_split:
+        # Khối 1x1x1 chỉ trượt ngang/dọc, không lật thành 1x1x2
+        new_block = Block.new_block_up(current_block.ax + dx, current_block.ay + dy)
+    else:
+        new_block = current_block.move(dx, dy)
+        
+    was_legal = terrain.is_legal(new_block, is_half=is_split)
     current_block = new_block
     
     if was_legal:
@@ -369,18 +475,21 @@ def try_move(dx, dy):
     invoke(finish_move, was_legal, delay=MOVE_DURATION)
 
 def load_level(index):
-    global current_level_index, terrain, current_block, move_count, is_animating
+    global current_level_index, terrain, current_block, move_count, is_animating, is_split, active_split
     
     if current_pivot: destroy(current_pivot)
+    move_history.clear()
 
     current_level_index = index % len(LEVELS)
     level = LEVELS[current_level_index]
     terrain = build_terrain(level)
     current_block = terrain.start()
     
-    move_count, is_animating = 0, False
+    is_split, active_split, move_count, is_animating = False, 0, 0, False
+    if player2: player2.visible = False
+    
     build_map_graphics(level, terrain)
-    update_dynamic_tiles() # ĐẢM BẢO CẦU ĐƯỢC ẨN NGAY LÚC LOAD GAME
+    update_dynamic_tiles() 
     focus_camera_on_level(level)
 
     if player:
@@ -389,20 +498,36 @@ def load_level(index):
 
     win_text.enabled = False
     level_text.text = f"{level['name']}  ({current_level_index + 1}/{len(LEVELS)})"
-    status_text.text = "WASD/Mũi tên: Di chuyển | R: Chơi lại | N: Màn tiếp | B: Bàn trước"
+    status_text.text = "Mũi tên: Di chuyển | R: Chơi lại | N: Màn tiếp | SPACE: Đổi khối | Z: Hoàn tác"
     move_text.text = "Bước: 0"
 
 def reset_game():
     load_level(current_level_index)
 
 def input(key):
+    global active_split, current_block
     if key == "r": reset_game(); return
     if key == "n": load_level(current_level_index + 1); return
     if key == "b": load_level(current_level_index - 1); return
+    if key == "z": undo_move(); return
     if key.isdigit() and 1 <= int(key) <= 9: load_level(int(key) - 1); return
-    if key == "0": load_level(9); return
-    if is_animating: return
+    if key == "0": load_level(10); return # 0 để nhảy Màn 11
+    
+    # CHUYỂN ĐỔI KHỐI BẰNG PHÍM SPACE
+    if key == "space" and is_split and not is_animating:
+        split_blocks[active_split] = clone_block(current_block)
+        active_split = 1 - active_split
+        
+        # Đổi vị trí hiển thị để Camera & Logic luôn bám theo khối đang điều khiển
+        p1_pos = player.position
+        player.position = player2.position
+        player2.position = p1_pos
+        
+        current_block = clone_block(split_blocks[active_split])
+        status_text.text = f"Dang dieu khien khoi {active_split + 1}"
+        return
 
+    if is_animating: return
     dx, dy = 0, 0
     if key in ("w", "up arrow"): dy = -1
     elif key in ("s", "down arrow"): dy = 1
@@ -418,6 +543,9 @@ status_text = Text(text="", scale=1, origin=(0, 0), y=0.42, color=color.light_gr
 move_text = Text(text="Bước: 0", scale=1.2, origin=(-0.5, 0), x=-0.85, y=0.35, color=color.azure)
 win_text = Text(text="CHIEN THANG!", scale=2.5, origin=(0, 0), y=0.05, color=color.yellow, enabled=False)
 
+# Khối chính (Đỏ) - Luôn là khối được điều khiển
 player = Entity(model="cube", color=color.hex('#8c4646'), texture="white_cube")
+# Khối phụ (Xám) - Đại diện cho nửa khối đang đứng im chờ
+player2 = Entity(model="cube", color=color.gray, texture="white_cube", visible=False)
 load_level(0)
 app.run()
