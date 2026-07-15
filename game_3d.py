@@ -1,5 +1,13 @@
 from ursina import *
-from bloxorz_go_version import Block, ArrayTerrain, Path, solve
+# from bloxorz_go_version import Block, ArrayTerrain, Path, solve
+
+from bloxorz_go_version import (
+    Block,
+    ArrayTerrain,
+    Path,
+    solve_bfs,
+    solve_dfs
+)
 
 app = Ursina(title="Bloxorz 3D - Advanced Tiles", borderless=False)
 window.color = color.hex('#191e28')
@@ -535,6 +543,10 @@ def load_level(index):
     status_text.text = "Mũi tên: Di chuyển | R: Chơi lại | N: Màn tiếp | SPACE: Đổi khối | Z: Hoàn tác"
     move_text.text = "Bước: 0"
 
+    stats_text.text = ""
+    stats_text.enabled = False
+
+
 def reset_game():
     load_level(current_level_index)
 
@@ -586,6 +598,16 @@ level_text = Text(text="", scale=1.4, origin=(0, 0), y=0.48, color=color.white, 
 status_text = Text(text="", scale=1, origin=(0, 0), y=0.42, color=color.light_gray, enabled=False)
 move_text = Text(text="Bước: 0", scale=1.2, origin=(-0.5, 0), x=-0.85, y=0.35, color=color.azure, enabled=False)
 win_text = Text(text="CHIẾN THẮNG!", scale=2.5, origin=(0, 0), y=0.05, color=color.yellow, enabled=False)
+
+stats_text = Text(
+    text="",
+    scale=1,
+    origin=(-0.5, 0.5),
+    x=0.55,
+    y=0.32,
+    color=color.white,
+    enabled=False
+)
 
 # ---- NÚT BẤM TRONG GAME ----
 btn_menu = Button("Menu Chính", position=(-0.75, 0.45), scale=(0.15, 0.05), color=color.red, enabled=False)
@@ -653,6 +675,7 @@ def back_to_menu():
     game_mode = 'MENU'
     menu_bg.enabled = True
     show_menu(main_menu)
+    stats_text.enabled = False
     btn_menu.enabled = btn_restart.enabled = btn_next.enabled = win_text.enabled = False
     level_text.enabled = status_text.enabled = move_text.enabled = False
     if current_pivot: destroy(current_pivot)
@@ -666,9 +689,75 @@ btn_menu.on_click = back_to_menu
 btn_restart.on_click = lambda: load_level(current_level_index)
 btn_next.on_click = next_level
 
+# def run_ai_solver():
+#     status_text.text = f"AI {selected_ai} đang giải quyết..."
+#     # CODE TỰ ĐỘNG CHƠI SẼ ĐƯỢC CẬP NHẬT Ở BƯỚC TỚI
+
+# def run_ai_solver():
+#     status_text.text = f"AI {selected_ai} đang giải quyết..."
+
+#     if selected_ai == "BFS":
+#         result = solve_bfs(terrain)
+#     elif selected_ai == "DFS":
+#         result = solve_dfs(terrain)
+#     else:
+#         return
+
+#     if result.path is None:
+#         status_text.text = "Không tìm thấy lời giải."
+#         return
+
+#     print("Moves:", result.solution_length)
+#     print("Time:", result.search_time)
+#     print("Expanded:", result.expanded_nodes)
+#     print("Memory:", result.memory_usage)
+
+#     animate_solution(result.path)
+
 def run_ai_solver():
-    status_text.text = f"AI {selected_ai} đang giải quyết..."
-    # CODE TỰ ĐỘNG CHƠI SẼ ĐƯỢC CẬP NHẬT Ở BƯỚC TỚI
+    global stats_text
+
+    status_text.text = f"AI {selected_ai} đang giải..."
+
+    if selected_ai == "BFS":
+        result = solve_bfs(terrain)
+    elif selected_ai == "DFS":
+        result = solve_dfs(terrain)
+    else:
+        return
+
+    if result.path is None:
+        status_text.text = "Không tìm thấy lời giải!"
+        return
+
+    stats_text.text = (
+        f"{selected_ai} Statistics\n\n"
+        f"Moves: {result.solution_length}\n"
+        f"Expanded: {result.expanded_nodes}\n"
+        f"Time: {result.search_time:.6f} s\n"
+        f"Memory: {result.memory_usage:.2f} KB"
+    )
+
+    stats_text.enabled = True
+
+    animate_solution(result.path)
+
+def animate_solution(path):
+    moves = path.blocks
+
+    def step(i):
+        global current_block
+
+        if i >= len(moves):
+            status_text.text = "AI hoàn thành!"
+            return
+
+        current_block = moves[i]
+        update_player_graphics(False)
+
+        invoke(step, i + 1, delay=0.35)
+
+    step(0)
 
 # ---- KHỞI TẠO VÀ CHẠY GAME ----
 player = Entity(model="cube", color=color.hex('#8c4646'), texture="white_cube")

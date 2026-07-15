@@ -1,4 +1,7 @@
+
 from collections import deque
+import time
+import tracemalloc
 
 # ==========================================
 # 1. BLOCK (Tương đương block.go)
@@ -58,6 +61,17 @@ class Block:
         return (self.ax == other.ax and self.ay == other.ay and 
                 self.bx == other.bx and self.by == other.by)
 
+    def __eq__(self, other):
+        return (
+        self.ax == other.ax and
+        self.ay == other.ay and
+        self.bx == other.bx and
+        self.by == other.by
+    )
+
+    def __hash__(self):
+        return hash((self.ax, self.ay, self.bx, self.by))
+
     def __str__(self):
         """In thông tin tọa độ khối (String representation)"""
         if self.is_up():
@@ -99,6 +113,22 @@ class Path:
     def __str__(self):
         return "[" + "; ".join(str(b) for b in self.blocks) + "]"
 
+
+class SearchResult:
+    def __init__(self, path, search_time,
+                 expanded_nodes,
+                 memory_usage):
+
+        self.path = path
+        self.search_time = search_time
+        self.expanded_nodes = expanded_nodes
+        self.memory_usage = memory_usage
+
+    @property
+    def solution_length(self):
+        if self.path is None:
+            return 0
+        return len(self.path)-1
 
 # ==========================================
 # 3. TERRAIN (Tương đương terrain.go)
@@ -146,49 +176,194 @@ class InfiniteTerrain:
 # ==========================================
 # 4. BRESENT-FIRST SEARCH SOLVER (Tương đương bloxorz.go)
 # ==========================================
-def solve(terrain):
-    """
-    Thuật toán giải BFS.
-    Thay vì dùng Channel (chan) của Go, hàm này sẽ return ngay Path tối ưu đầu tiên tìm được.
-    """
-    queue = deque()
-    path = Path()
-    start_block = terrain.start()
+# def solve(terrain):
+#     """
+#     Thuật toán giải BFS.
+#     Thay vì dùng Channel (chan) của Go, hàm này sẽ return ngay Path tối ưu đầu tiên tìm được.
+#     """
+#     queue = deque()
+#     path = Path()
+#     start_block = terrain.start()
     
-    path.add(start_block)
-    queue.append(path)
+#     path.add(start_block)
+#     queue.append(path)
     
-    return solve_iter(terrain, queue)
+#     return solve_iter(terrain, queue)
 
-def solve_iter(terrain, queue):
-    while queue:
-        # Lấy Path đầu tiên ra khỏi Queue
-        path = queue.popleft()
+# def solve_iter(terrain, queue):
+#     while queue:
+#         # Lấy Path đầu tiên ra khỏi Queue
+#         path = queue.popleft()
         
-        # Lấy khối cuối cùng của Path đó (vị trí hiện tại)
+#         # Lấy khối cuối cùng của Path đó (vị trí hiện tại)
+#         block = path.tail()
+
+#         # 4 hướng: Lên, Xuống, Trái, Phải
+#         directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+
+#         for dx, dy in directions:
+#             neighbour = block.move(dx, dy)
+
+#             # Code gốc của Go chỉ check visited trên CÙNG 1 path hiện tại
+#             visited = path.contains(neighbour)
+            
+#             if not visited and terrain.is_legal(neighbour):
+#                 new_path = path.clone()
+#                 new_path.add(neighbour)
+#                 queue.append(new_path)
+                
+#                 # Tìm thấy lời giải
+#                 if neighbour.equals(terrain.end()):
+#                     return new_path
+
+#     # Không tìm thấy đường đi
+#     return None
+
+def solve_bfs(terrain):
+
+    tracemalloc.start()
+
+    start_time = time.perf_counter()
+
+    start = terrain.start()
+
+    goal = terrain.end()
+
+    queue = deque()
+
+    first = Path()
+
+    first.add(start)
+
+    queue.append(first)
+
+    visited = {start}
+
+    expanded = 0
+
+    directions = [
+        (0,-1),
+        (0,1),
+        (-1,0),
+        (1,0)
+    ]
+
+    while queue:
+
+        path = queue.popleft()
+
         block = path.tail()
 
-        # 4 hướng: Lên, Xuống, Trái, Phải
-        directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+        expanded += 1
 
-        for dx, dy in directions:
-            neighbour = block.move(dx, dy)
+        if block.equals(goal):
 
-            # Code gốc của Go chỉ check visited trên CÙNG 1 path hiện tại
-            visited = path.contains(neighbour)
-            
-            if not visited and terrain.is_legal(neighbour):
+            current, peak = tracemalloc.get_traced_memory()
+
+            tracemalloc.stop()
+
+            return SearchResult(
+                path,
+                time.perf_counter()-start_time,
+                expanded,
+                peak
+            )
+
+        for dx,dy in directions:
+
+            nxt = block.move(dx,dy)
+
+            if terrain.is_legal(nxt) and nxt not in visited:
+
+                visited.add(nxt)
+
                 new_path = path.clone()
-                new_path.add(neighbour)
+
+                new_path.add(nxt)
+
                 queue.append(new_path)
-                
-                # Tìm thấy lời giải
-                if neighbour.equals(terrain.end()):
-                    return new_path
 
-    # Không tìm thấy đường đi
-    return None
+    current, peak = tracemalloc.get_traced_memory()
 
+    tracemalloc.stop()
+
+    return SearchResult(
+        None,
+        time.perf_counter()-start_time,
+        expanded,
+        peak
+    )
+
+def solve_dfs(terrain):
+
+    tracemalloc.start()
+
+    start_time = time.perf_counter()
+
+    start = terrain.start()
+    goal = terrain.end()
+
+    stack = []
+
+    first = Path()
+    first.add(start)
+
+    stack.append(first)
+
+    visited = {start}
+
+    expanded = 0
+
+    directions = [
+        (0, -1),   # Up
+        (0, 1),    # Down
+        (-1, 0),   # Left
+        (1, 0)     # Right
+    ]
+
+    while stack:
+
+        path = stack.pop()
+
+        block = path.tail()
+
+        expanded += 1
+
+        if block.equals(goal):
+
+            current, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+
+            return SearchResult(
+                path,
+                time.perf_counter() - start_time,
+                expanded,
+                peak
+            )
+
+        # Đảo thứ tự để DFS có hành vi tự nhiên
+        for dx, dy in reversed(directions):
+
+            nxt = block.move(dx, dy)
+
+            if terrain.is_legal(nxt) and nxt not in visited:
+
+                visited.add(nxt)
+
+                new_path = path.clone()
+                new_path.add(nxt)
+
+                stack.append(new_path)
+
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    return SearchResult(
+        None,
+        time.perf_counter() - start_time,
+        expanded,
+        peak
+    )
 
 # ==========================================
 # 5. HÀM CHẠY THỬ (Tương đương bloxorz_test.go)
@@ -211,26 +386,57 @@ def build_unsolvable_terrain():
     end = Block.new_block_up(5, 0)
     return ArrayTerrain(start, end, arr, 8)
 
-def test_solvable_terrain(terrain, name):
-    solution = solve(terrain)
-    if solution:
-        print(f"{name} first solution in {len(solution)-1} moves: {solution}")
+def test_solvable_terrain(terrain, name, solver):
+
+    result = solver(terrain)
+
+    if result.path:
+
+        print(f"\n{name}")
+        print("----------------------------------")
+        print(f"Moves          : {result.solution_length}")
+        print(f"Search Time    : {result.search_time:.6f} s")
+        print(f"Expanded Nodes : {result.expanded_nodes}")
+        print(f"Memory Usage   : {result.memory_usage / 1024:.2f} KB")
+        print(result.path)
+
     else:
         print(f"{name} has no solution")
 
+# if __name__ == "__main__":
+#     print("--- Chạy thử các Terrain gốc từ tác giả Go ---")
+    
+#     # Test Terrain 1
+#     test_solvable_terrain(build_terrain_1(), "terrain1")
+    
+#     # Test Terrain 2
+#     test_solvable_terrain(build_terrain_2(), "terrain2")
+    
+#     # Test Unsolvable Terrain
+#     test_solvable_terrain(build_unsolvable_terrain(), "unsolvable terrain")
+    
+#     # Test Infinite Terrain
+#     start = Block.new_block_up(0, 0)
+#     end = Block.new_block_up(5, 1)
+#     test_solvable_terrain(InfiniteTerrain(start, end), "infinite")
+
 if __name__ == "__main__":
-    print("--- Chạy thử các Terrain gốc từ tác giả Go ---")
-    
-    # Test Terrain 1
-    test_solvable_terrain(build_terrain_1(), "terrain1")
-    
-    # Test Terrain 2
-    test_solvable_terrain(build_terrain_2(), "terrain2")
-    
-    # Test Unsolvable Terrain
-    test_solvable_terrain(build_unsolvable_terrain(), "unsolvable terrain")
-    
-    # Test Infinite Terrain
+    print("========== BFS ==========")
+
+    test_solvable_terrain(build_terrain_1(), "terrain1", solve_bfs)
+    test_solvable_terrain(build_terrain_2(), "terrain2", solve_bfs)
+    test_solvable_terrain(build_unsolvable_terrain(), "unsolvable terrain", solve_bfs)
+
     start = Block.new_block_up(0, 0)
     end = Block.new_block_up(5, 1)
-    test_solvable_terrain(InfiniteTerrain(start, end), "infinite")
+    test_solvable_terrain(InfiniteTerrain(start, end), "infinite", solve_bfs)
+
+    print("\n========== DFS ==========")
+
+    test_solvable_terrain(build_terrain_1(), "terrain1", solve_dfs)
+    test_solvable_terrain(build_terrain_2(), "terrain2", solve_dfs)
+    test_solvable_terrain(build_unsolvable_terrain(), "unsolvable terrain", solve_dfs)
+
+    start = Block.new_block_up(0, 0)
+    end = Block.new_block_up(5, 1)
+    test_solvable_terrain(InfiniteTerrain(start, end), "infinite", solve_dfs)
