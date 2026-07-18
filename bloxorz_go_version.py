@@ -88,12 +88,23 @@ def trigger_switches(b, arr, width, bridges, is_half):
     coords = [(b.ax, b.ay)] if b.is_up() else [(b.ax, b.ay), (b.bx, b.by)]
     for x, y in coords:
         char = arr[x + y * width]
-        is_soft = char in ['q', 'w', 'e']
-        is_heavy = char in ['a', 's', 'd']
-        if is_heavy and (not b.is_up() or is_half): continue 
-        if is_soft or is_heavy:
+        
+        is_soft_toggle = char in ['q', 'w', 'e']
+        is_heavy_toggle = char in ['a', 's', 'd']
+        is_soft_perm = char in ['Q', 'W', 'E']
+        is_heavy_perm = char in ['A', 'S', 'D']
+        
+        # Bỏ qua nếu là công tắc nặng nhưng khối đang nằm hoặc bị tách
+        if (is_heavy_toggle or is_heavy_perm) and (not b.is_up() or is_half): continue 
+        
+        if is_soft_toggle or is_heavy_toggle:
             target = '1' if char in ['q', 'a'] else '2' if char in ['w', 's'] else '3'
-            new_bridges[target] = not new_bridges[target]
+            new_bridges[target] = not new_bridges[target] # Bật/Tắt luân phiên
+            
+        elif is_soft_perm or is_heavy_perm:
+            target = '1' if char in ['Q', 'A'] else '2' if char in ['W', 'S'] else '3'
+            new_bridges[target] = True # Kích hoạt vĩnh viễn
+            
     return new_bridges
 
 def get_neighbors(state, arr, width):
@@ -202,6 +213,32 @@ def solve_dfs(terrain):
                 stack.append((next_state, new_path))
     return None, nodes
 
+def get_step_cost(action, next_state, arr, width):
+    dx, dy, space_pressed = action
+    
+    # 1. Chi phí bấm nút đổi khối
+    if space_pressed: return 2 
+    
+    cost = 1 # 2. Chi phí lăn cơ bản
+    
+    # Lấy tọa độ của khối vừa được di chuyển
+    b = next_state.block if not next_state.is_split else (next_state.block if next_state.active_idx == 0 else next_state.block2)
+    coords = [(b.ax, b.ay)] if b.is_up() else [(b.ax, b.ay), (b.bx, b.by)]
+    
+    # Quét các ô mà khối đang đè lên
+    for x, y in coords:
+        if x < 0 or y < 0 or x >= width or y * width >= len(arr): continue
+        char = arr[x + y * width]
+        
+        # 3. Gạch thủy tinh cam (Rủi ro cao nhất)
+        if char == '~': 
+            cost = max(cost, 5)
+        # 4. Công tắc các loại (Tốn lực đè)
+        elif char in ['q', 'w', 'e', 'a', 's', 'd', 'X']: 
+            cost = max(cost, 3)
+            
+    return cost
+
 def solve_ucs(terrain):
     pq = []
     start_state = AIState(terrain.start(), {'1': False, '2': False, '3': False}, False, None, 0)
@@ -219,7 +256,11 @@ def solve_ucs(terrain):
             if next_state.get_hash() not in visited:
                 new_path = path.clone()
                 new_path.add(action)
-                heapq.heappush(pq, (cost + 1, id(next_state), next_state, new_path))
+                
+                # Tính chi phí thực tế cho nước đi này thay vì luôn là + 1
+                step_cost = get_step_cost(action, next_state, terrain.arr, terrain.width)
+                heapq.heappush(pq, (cost + step_cost, id(next_state), next_state, new_path))
+                
     return None, nodes
 
 def heuristic(state, end_b):
