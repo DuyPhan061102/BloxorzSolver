@@ -538,33 +538,37 @@ def load_level(index):
 def reset_game():
     load_level(current_level_index)
 
-def input(key):
+# THÊM HÀM NÀY ĐỂ ĐỔI KHỐI DÙNG CHUNG CHO AI VÀ NGƯỜI
+def switch_active_block():
     global active_split, current_block
-    if game_mode == 'MENU': return # Chặn thao tác khi đang ở Menu
-    if game_mode == 'AI': return   # Chặn thao tác di chuyển tay khi AI đang giải
+    if not is_split: return
+    
+    split_blocks[active_split] = clone_block(current_block)
+    active_split = 1 - active_split
+    
+    # Đổi vị trí hiển thị để Camera & Logic luôn bám theo khối đang điều khiển
+    p1_pos = player.position
+    player.position = player2.position
+    player2.position = p1_pos
+    
+    current_block = clone_block(split_blocks[active_split])
+    status_text.text = f"Dang dieu khien khoi {active_split + 1}"
+
+# HÀM INPUT ĐÃ ĐƯỢC CẬP NHẬT
+def input(key):
+    global current_block
+    if game_mode == 'MENU': return 
+    if game_mode == 'AI': return   # Vẫn chặn NGƯỜI CHƠI bấm phím khi AI đang giải
 
     if key == "r": load_level(current_level_index); return
     if key == "n" and game_mode == 'MANUAL': load_level(current_level_index + 1); return
     if key == "z" and game_mode == 'MANUAL': undo_move(); return
-    if key == "r": reset_game(); return
-    if key == "n": load_level(current_level_index + 1); return
-    if key == "b": load_level(current_level_index - 1); return
-    if key == "z": undo_move(); return
     if key.isdigit() and 1 <= int(key) <= 9: load_level(int(key) - 1); return
-    if key == "0": load_level(9); return # 0 để nhảy Màn 10
+    if key == "0": load_level(9); return 
     
-    # CHUYỂN ĐỔI KHỐI BẰNG PHÍM SPACE
-    if key == "space" and is_split and not is_animating:
-        split_blocks[active_split] = clone_block(current_block)
-        active_split = 1 - active_split
-        
-        # Đổi vị trí hiển thị để Camera & Logic luôn bám theo khối đang điều khiển
-        p1_pos = player.position
-        player.position = player2.position
-        player2.position = p1_pos
-        
-        current_block = clone_block(split_blocks[active_split])
-        status_text.text = f"Dang dieu khien khoi {active_split + 1}"
+    # CHUYỂN ĐỔI KHỐI BẰNG PHÍM SPACE (Cho người chơi tay)
+    if key == "space" and not is_animating:
+        switch_active_block()
         return
 
     if is_animating: return
@@ -666,9 +670,46 @@ btn_menu.on_click = back_to_menu
 btn_restart.on_click = lambda: load_level(current_level_index)
 btn_next.on_click = next_level
 
+# Biến lưu trữ đường đi của AI
+ai_path_blocks = []
+ai_move_index = 0
+
 def run_ai_solver():
-    status_text.text = f"AI {selected_ai} đang giải quyết..."
-    # CODE TỰ ĐỘNG CHƠI SẼ ĐƯỢC CẬP NHẬT Ở BƯỚC TỚI
+    global ai_path_actions, ai_move_index
+    status_text.text = f"Đang chạy thuật toán {selected_ai}..."
+    
+    result = solve(terrain, selected_ai)
+    
+    if result and result["path"]:
+        ai_path_actions = result["path"].actions
+        ai_move_index = 0
+        
+        status_text.text = f"[{selected_ai}] Time: {result['time_ms']:.1f}ms | Mem: {result['mem_kb']:.1f}KB | Nodes: {result['nodes']}"
+        move_text.text = f"Lời giải: {result['length']} bước"
+        invoke(do_next_ai_move, delay=1.0)
+    else:
+        status_text.text = f"AI {selected_ai} không tìm thấy đường đi!"
+        if 'sound_fall' in globals(): sound_fall.play()
+
+def do_next_ai_move():
+    global ai_move_index
+    
+    if game_mode != 'AI': return 
+    
+    if ai_move_index >= len(ai_path_actions):
+        return
+        
+    dx, dy, space_pressed = ai_path_actions[ai_move_index]
+    ai_move_index += 1
+    move_text.text = f"Bước: {ai_move_index} / {len(ai_path_actions)}"
+    
+    if space_pressed:
+        # Gọi trực tiếp hàm đổi khối thay vì giả lập phím input
+        switch_active_block()
+        invoke(do_next_ai_move, delay=0.25) # Dừng một chút cho người xem thấy nó vừa đổi khối
+    else:
+        try_move(dx, dy)
+        invoke(do_next_ai_move, delay=MOVE_DURATION + 0.1)
 
 # ---- KHỞI TẠO VÀ CHẠY GAME ----
 player = Entity(model="cube", color=color.hex('#8c4646'), texture="white_cube")
