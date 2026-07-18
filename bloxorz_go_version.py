@@ -91,19 +91,13 @@ def trigger_switches(b, arr, width, bridges, is_half):
         
         is_soft_toggle = char in ['q', 'w', 'e']
         is_heavy_toggle = char in ['a', 's', 'd']
-        is_soft_perm = char in ['Q', 'W', 'E']
-        is_heavy_perm = char in ['A', 'S', 'D']
         
         # Bỏ qua nếu là công tắc nặng nhưng khối đang nằm hoặc bị tách
-        if (is_heavy_toggle or is_heavy_perm) and (not b.is_up() or is_half): continue 
+        if is_heavy_toggle and (not b.is_up() or is_half): continue 
         
         if is_soft_toggle or is_heavy_toggle:
             target = '1' if char in ['q', 'a'] else '2' if char in ['w', 's'] else '3'
             new_bridges[target] = not new_bridges[target] # Bật/Tắt luân phiên
-            
-        elif is_soft_perm or is_heavy_perm:
-            target = '1' if char in ['Q', 'A'] else '2' if char in ['W', 'S'] else '3'
-            new_bridges[target] = True # Kích hoạt vĩnh viễn
             
     return new_bridges
 

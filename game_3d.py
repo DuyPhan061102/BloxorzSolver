@@ -317,13 +317,10 @@ def finish_move(was_legal):
             is_animating = True
             sound_win.play()
             player.animate_y(-1, duration=0.5, curve=curve.in_quad)
-            
-            # Tắt nút Chơi Lại vì đã thắng rồi
-            invoke(lambda: setattr(btn_restart, 'enabled', False), delay=0.5)
-            
+                        
             # Kiểm tra xem có phải là Màn Cuối Cùng không (Màn 10 là index 9)
             if current_level_index == len(LEVELS) - 1:
-                win_text.text = "CHÚC MỪNG!\nBẠN ĐÃ PHÁ ĐẢO GAME!"
+                win_text.text = "CHIẾN THẮNG!"
                 win_text.enabled = True
                 # Không bật nút btn_next, trên màn hình giờ chỉ còn mỗi nút "Menu Chính"
             else:
@@ -392,6 +389,7 @@ def load_level(index):
         update_player_graphics(animate=False)
 
     win_text.enabled = False
+    ai_stats_text.enabled = False
     level_text.text = f"{level['name']}  ({current_level_index + 1}/{len(LEVELS)})"
     status_text.text = "Mũi tên: Di chuyển | R: Chơi lại | N: Màn tiếp | SPACE: Đổi khối | Z: Hoàn tác"
     move_text.text = "Bước: 0"
@@ -450,13 +448,15 @@ selected_ai = None
 level_text = Text(text="", scale=1.4, origin=(0, 0), y=0.48, color=color.white, enabled=False)
 status_text = Text(text="", scale=1, origin=(0, 0), y=0.42, color=color.light_gray, enabled=False)
 move_text = Text(text="Bước: 0", scale=1.2, origin=(-0.5, 0), x=-0.85, y=0.35, color=color.azure, enabled=False)
+ai_stats_text = Text(text="", scale=1.1, origin=(-0.5, 0), x=-0.85, y=0.25, color=color.yellow, enabled=False)
 win_text = Text(text="CHIẾN THẮNG!", scale=2.5, origin=(0, 0), y=0.05, color=color.yellow, enabled=False)
 
 # ---- NÚT BẤM TRONG GAME ----
-btn_menu = Button("Menu Chính", position=(-0.75, 0.45), scale=(0.15, 0.05), color=color.red, enabled=False)
-btn_restart = Button("Chơi Lại", position=(-0.75, 0.38), scale=(0.15, 0.05), color=color.orange, enabled=False)
-btn_next = Button("Màn Tiếp Theo", position=(0, -0.15), scale=(0.25, 0.08), color=color.azure, enabled=False)
+btn_menu = Button("Menu Chính", position=(-0.78, 0.45), scale=(0.15, 0.05), color=color.red, enabled=False)
+btn_choose_map = Button("Đổi Map", position=(-0.61, 0.45), scale=(0.15, 0.05), color=color.azure, enabled=False)
+btn_choose_algo = Button("Đổi Thuật Toán", position=(-0.41, 0.45), scale=(0.20, 0.05), color=color.orange, enabled=False)
 
+btn_next = Button("Màn Tiếp Theo", position=(0, -0.15), scale=(0.25, 0.08), color=color.azure, enabled=False)
 # ---- CÁC MÀN HÌNH MENU ----
 menu_bg = Entity(parent=camera.ui, model='quad', scale=(2, 1.2), texture='background.png', color=color.gray)
 
@@ -473,8 +473,7 @@ Button(text="Solve BFS", parent=ai_menu, scale=(0.25, 0.08), position=(-0.15, 0.
 Button(text="Solve DFS", parent=ai_menu, scale=(0.25, 0.08), position=(0.15, 0.1), color=color.clear, text_color=color.white, on_click=lambda: select_algo("DFS"))
 Button(text="Solve UCS", parent=ai_menu, scale=(0.25, 0.08), position=(-0.15, 0), color=color.clear, text_color=color.white, on_click=lambda: select_algo("UCS"))
 Button(text="Solve A*", parent=ai_menu, scale=(0.25, 0.08), position=(0.15, 0), color=color.clear, text_color=color.white, on_click=lambda: select_algo("A*"))
-Button(text="Quay Lại", parent=ai_menu, scale=(0.2, 0.06), y=-0.2, color=color.clear, text_color=color.red, on_click=lambda: show_menu(main_menu))
-
+Button(text="Quay Lại", parent=ai_menu, scale=(0.2, 0.06), y=-0.2, color=color.clear, text_color=color.red, on_click=lambda: back_from_ai_menu())
 # 3. Menu Chọn Màn Chơi (Dành cho AI)
 level_menu = Entity(parent=camera.ui, enabled=False)
 Text(text="CHỌN MÀN CẦN GIẢI", parent=level_menu, scale=2.5, origin=(0,0), y=0.35, color=color.yellow)
@@ -485,32 +484,46 @@ for i in range(10): # Các màn từ 1 đến 10
 Button(text="Quay Lại", parent=level_menu, scale=(0.2, 0.06), y=-0.3, color=color.clear, text_color=color.red, on_click=lambda: show_menu(ai_menu))
 
 # ---- CÁC HÀM XỬ LÝ SỰ KIỆN MENU ----
+rechoosing_algo = False # Cờ nhận biết đang đổi thuật toán
+
 def show_menu(menu_entity):
     main_menu.enabled = ai_menu.enabled = level_menu.enabled = False
     menu_entity.enabled = True
 
+def back_from_ai_menu():
+    global rechoosing_algo
+    rechoosing_algo = False
+    show_menu(main_menu)
+
 def select_algo(algo_name):
-    global selected_ai
+    global selected_ai, rechoosing_algo
     selected_ai = algo_name
-    show_menu(level_menu)
+    if rechoosing_algo:
+        # Nếu đang ở trong game và muốn đổi AI, chạy lại map hiện tại ngay lập tức!
+        rechoosing_algo = False
+        start_ai_game(current_level_index) 
+    else:
+        # Nếu đi từ Menu Chính vào, chuyển sang màn hình Chọn Map
+        show_menu(level_menu)
 
 def start_manual_game():
     global game_mode
     game_mode = 'MANUAL'
     menu_bg.enabled = main_menu.enabled = False
-    btn_menu.enabled = btn_restart.enabled = True
+    btn_menu.enabled = True
+    btn_choose_map.enabled = btn_choose_algo.enabled = False # Ẩn 2 nút này khi tự chơi
     level_text.enabled = status_text.enabled = move_text.enabled = True
-    load_level(0) # Người chơi tự chơi luôn bắt đầu từ Màn 1
+    load_level(0)
 
 def start_ai_game(level_idx):
     global game_mode
     game_mode = 'AI'
     menu_bg.enabled = ai_menu.enabled = level_menu.enabled = False
-    btn_menu.enabled = btn_restart.enabled = True
+    # Hiển thị cả 3 nút bên góc trái
+    btn_menu.enabled = btn_choose_map.enabled = btn_choose_algo.enabled = True
     level_text.enabled = status_text.enabled = move_text.enabled = True
     load_level(level_idx)
     status_text.text = f"Đang chờ AI tính toán bằng {selected_ai}..."
-    # Gọi logic AI (Sẽ nhúng code thuật toán vào đây sau)
     invoke(run_ai_solver, delay=0.5)
 
 def back_to_menu():
@@ -518,9 +531,22 @@ def back_to_menu():
     game_mode = 'MENU'
     menu_bg.enabled = True
     show_menu(main_menu)
-    btn_menu.enabled = btn_restart.enabled = btn_next.enabled = win_text.enabled = False
+    btn_menu.enabled = btn_choose_map.enabled = btn_choose_algo.enabled = btn_next.enabled = win_text.enabled = False
     level_text.enabled = status_text.enabled = move_text.enabled = False
+    if 'ai_stats_text' in globals(): ai_stats_text.enabled = False
     if current_pivot: destroy(current_pivot)
+
+def open_choose_map():
+    global rechoosing_algo
+    rechoosing_algo = False
+    back_to_menu()
+    show_menu(level_menu) # Quay lại chọn map
+
+def open_choose_algo():
+    global rechoosing_algo
+    rechoosing_algo = True # Bật cờ ghi nhớ
+    back_to_menu()
+    show_menu(ai_menu) # Bật menu đổi thuật toán
 
 def next_level():
     btn_next.enabled = False
@@ -528,8 +554,9 @@ def next_level():
 
 # Gắn sự kiện cho các nút In-game
 btn_menu.on_click = back_to_menu
-btn_restart.on_click = lambda: load_level(current_level_index)
 btn_next.on_click = next_level
+btn_choose_map.on_click = open_choose_map
+btn_choose_algo.on_click = open_choose_algo
 
 # Biến lưu trữ đường đi của AI
 ai_path_blocks = []
@@ -545,8 +572,18 @@ def run_ai_solver():
         ai_path_actions = result["path"].actions
         ai_move_index = 0
         
-        status_text.text = f"[{selected_ai}] Time: {result['time_ms']:.1f}ms | Mem: {result['mem_kb']:.1f}KB | Nodes: {result['nodes']}"
-        move_text.text = f"Lời giải: {result['length']} bước"
+        # --- BẢNG THỐNG KÊ CỐ ĐỊNH KHI AI CHẠY ---
+        ai_stats_text.text = (
+            f"THỐNG KÊ AI [{selected_ai}]:\n"
+            f"- Search Time: {result['time_ms']:.2f} ms\n"
+            f"- Memory Peak: {result['mem_kb']:.2f} KB\n"
+            f"- Expanded Nodes: {result['nodes']}\n"
+            f"- Solution Length: {result['length']} bước"
+        )
+        ai_stats_text.enabled = True
+        
+        status_text.text = "AI đang tự động diễn hoạt..."
+        move_text.text = f"Bước: 0 / {result['length']}"
         invoke(do_next_ai_move, delay=1.0)
     else:
         status_text.text = f"AI {selected_ai} không tìm thấy đường đi!"
