@@ -210,24 +210,19 @@ def solve_dfs(terrain):
 def get_step_cost(action, next_state, arr, width):
     dx, dy, space_pressed = action
     
-    # 1. Chi phí bấm nút đổi khối
     if space_pressed: return 2 
     
-    cost = 1 # 2. Chi phí lăn cơ bản
+    cost = 1
     
-    # Lấy tọa độ của khối vừa được di chuyển
     b = next_state.block if not next_state.is_split else (next_state.block if next_state.active_idx == 0 else next_state.block2)
     coords = [(b.ax, b.ay)] if b.is_up() else [(b.ax, b.ay), (b.bx, b.by)]
     
-    # Quét các ô mà khối đang đè lên
     for x, y in coords:
         if x < 0 or y < 0 or x >= width or y * width >= len(arr): continue
         char = arr[x + y * width]
         
-        # 3. Gạch thủy tinh cam (Rủi ro cao nhất)
         if char == '~': 
             cost = max(cost, 5)
-        # 4. Công tắc các loại (Tốn lực đè)
         elif char in ['q', 'w', 'e', 'a', 's', 'd', 'X']: 
             cost = max(cost, 3)
             
@@ -251,7 +246,6 @@ def solve_ucs(terrain):
                 new_path = path.clone()
                 new_path.add(action)
                 
-                # Tính chi phí thực tế cho nước đi này thay vì luôn là + 1
                 step_cost = get_step_cost(action, next_state, terrain.arr, terrain.width)
                 heapq.heappush(pq, (cost + step_cost, id(next_state), next_state, new_path))
                 
